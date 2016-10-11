@@ -1,0 +1,114 @@
+//MovieMapper with counter
+
+import java.io.IOException;
+
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+
+public class MovieMapper extends Mapper<LongWritable,Text,Text,IntWritable>{
+	IntWritable rating=new IntWritable();
+	Text movie=new Text();
+	public enum Ratings{totalNumberOfRatings};
+	@Override
+	public void map(LongWritable key,Text value,Context c) throws IOException, InterruptedException
+	{
+		String text=value.toString();
+		if(text.length()>0)
+		{
+			String movieDetails[]=text.split("	");
+			movie.set(movieDetails[1]);
+			rating.set(Integer.parseInt(movieDetails[2]));
+			c.getCounter(Ratings.totalNumberOfRatings).increment(1);
+			c.write(movie, rating);
+		}
+	}
+}
+
+//MovieReducer with counters
+
+import java.io.IOException;
+
+import org.apache.hadoop.io.FloatWritable;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+
+public class MovieReducer extends Reducer<Text,IntWritable,Text,FloatWritable>{
+	FloatWritable rating=new FloatWritable();
+	public enum Ratings{highestRating,totalNumberOfMovies};
+	float highestRating=0.0f;
+	@Override
+	public void reduce(Text key,Iterable<IntWritable> value,Context c) throws IOException,InterruptedException
+	{
+		int count=0;
+		int sum=0;
+		for(IntWritable val:value)
+		{
+			sum+=val.get();
+			count++;
+		}
+		float f=(float)sum/count;
+		if(f>highestRating)
+		{
+			highestRating=f;
+			c.getCounter(Ratings.highestRating).setValue((long) f);
+		}
+		rating.set(f);
+		c.getCounter(Ratings.totalNumberOfMovies).increment(1);
+		c.write(key, rating);
+	}
+
+}
+
+//MovieDriver with ToolRunner
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+
+
+public class MovieDriver extends Configured implements Tool{
+	
+	public static void main(String[] args) throws Exception{
+		int status=ToolRunner.run(new Configuration(), new MovieDriver(), args);
+		System.exit(status);
+	}
+	
+	@Override
+	public int run(String[] arg) throws Exception {
+		Job job=Job.getInstance(getConf(),"Movie average rating");
+		job.setJarByClass(MovieDriver.class);
+		
+		job.setMapperClass(MovieMapper.class);
+		job.setReducerClass(MovieReducer.class);
+		
+		job.setOutputKeyClass(Text.class);
+		job.setOutputValueClass(IntWritable.class);
+		
+		FileInputFormat.addInputPath(job, new Path(arg[0]));
+		FileOutputFormat.setOutputPath(job, new Path(arg[1]));
+		
+		job.setInputFormatClass(TextInputFormat.class);
+		job.setOutputFormatClass(TextOutputFormat.class);
+		
+		return job.waitForCompletion(true)?0:1;
+	}
+
+}
+
+//execution as follows
+hadoop jar /home/cloudera/Desktop/MovieRatings.jar MovieDriver movieratings/movielist averagemovieratings
+
